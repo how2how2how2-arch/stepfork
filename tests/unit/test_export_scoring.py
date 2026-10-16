@@ -64,11 +64,15 @@ def test_code_only_battery_cannot_separate_the_two_expectations() -> None:
     assert (drifted.killed, drifted.total) == (3, 3)
     # The two expectations agree on which mutants die. They may name a
     # different leaf inside a mutant, so the kill set is what is compared.
-    assert _kills(anchored) == _kills(drifted) == {
-        "amount off by one",
-        "status misspelled",
-        "amount as string",
-    }
+    assert (
+        _kills(anchored)
+        == _kills(drifted)
+        == {
+            "amount off by one",
+            "status misspelled",
+            "amount as string",
+        }
+    )
     assert anchored.verdict == "undetermined"
     assert drifted.verdict == "undetermined"
 
@@ -89,9 +93,7 @@ def test_run_pinned_expectation_accepts_the_claim_drawn_mutant() -> None:
     score = score_expectation(RUN_PINNED, [_claim_mutant()])
 
     survivors = score.survivors
-    assert [mutant.name for mutant in survivors] == [
-        "refund reported but not issued"
-    ]
+    assert [mutant.name for mutant in survivors] == ["refund reported but not issued"]
     assert survivors[0].survived
     assert survivors[0].differing_path is None
     assert "run-pinned" in score.summary()
