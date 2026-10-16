@@ -82,6 +82,62 @@ not embed or copy the fixture. If moving the test to another project or CI,
 copy the bundle with it and verify `TRACE_PATH` resolves there. These are test
 environment requirements; `pytest` is not a Stepfork runtime dependency.
 
+## Is the expectation still anchored? (`stepfork score`)
+
+An expectation can be two different things and pass the same green run: the
+claim you meant to assert, or a copy of the run you wrote it from. `stepfork
+score` separates them, and it does it by derivation rather than by execution.
+
+```bash
+stepfork score test_booking_regression.py
+stepfork score test_booking_regression.py --expect-output expected.json --json
+```
+
+Two values are already at hand when the export is prepared, and both are read
+back rather than re-derived:
+
+- the **expectation** the generated test asserts;
+- the **recorded run's output** (`RunEnd.output` in the bundle), which is the
+  value the buggy code that produced the recording actually returned.
+
+The claim-drawn row is that second value verbatim: the run's own output is the
+most plausible output of a variant implementation, because an implementation did
+produce it. It is the row that discriminates. A claim-pinned expectation rejects
+it -- the run it came from is the bug, so the expectation must fail against it.
+A run-pinned expectation accepts it, and that acceptance is the finding: the
+granularity of the comparison means the generated test would pass against the
+code that produced the recording.
+
+The remaining rows are **controls**, not discriminators: perturbations of the
+expectation's own leaves (an integer moved by one, a string suffixed, a value
+replaced by `null`). A run-pinned expectation rejects those too, so they cannot
+separate the two readings by themselves; what they do is make the contrast
+legible, because a battery in which every control is killed and the claim-drawn
+row survives reads differently from one in which everything is killed.
+
+`score` also reports **pin coverage**: which leaves of the expectation carry a
+value the run did not produce (live pins), and which merely reproduce the run.
+A leaf that reproduces the run is not a defect -- a fix does not change every
+field -- but it is not evidence of anchoring either, which is why it is reported
+rather than counted.
+
+Exit codes: `0` when the expectation is claim-pinned, `1` when it is run-pinned,
+`2` when the question cannot be answered.
+
+Three limits are worth stating plainly.
+
+- **No recorded run, no claim-drawn row.** A trace whose run did not complete
+  carries no output, so there is nothing to draw the discriminating row from.
+  The battery is then the controls alone and the verdict is `undetermined` -- a
+  reading, not a failure, and the honest one for a battery that cannot separate
+  the two.
+- **The bundle must be there.** `score` reads the recorded run from the bundle
+  the test names, so it has the same requirement the test has. Pass `--bundle`
+  to point at one elsewhere.
+- **Nothing is executed.** Neither the test file nor the entrypoint runs: the
+  file is parsed, the literals are read, and each row is scored with the same
+  canonical comparison the generated test uses.
+
 ## Generated test
 
 The generated file is produced from a fixed, reviewed template. Trace payloads
