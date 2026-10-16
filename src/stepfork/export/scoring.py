@@ -124,27 +124,27 @@ class ExpectationScore:
         return tuple(mutant for mutant in self.mutants if mutant.kind == kind)
 
     def summary(self) -> str:
-        """Return a one-line reading of the score."""
+        """Return a one-line reading of the score, labelled with its verdict."""
         if self.verdict == "no_expectation":
             return "no expectation to score: the test asserts the recorded run"
         if self.verdict == "undetermined":
             return (
-                f"rejected {self.killed}/{self.total} mutants, but the battery "
-                "carries no claim-drawn mutant, so it cannot separate a "
-                "claim-pinned expectation from a run-pinned one"
+                f"undetermined: rejected {self.killed}/{self.total} mutants, but "
+                "the battery carries no claim-drawn mutant, so it cannot "
+                "separate a claim-pinned expectation from a run-pinned one"
             )
         if self.verdict == "run_pinned":
             survived = ", ".join(
                 mutant.name for mutant in self.by_kind("claim") if mutant.survived
             )
             return (
-                "expectation is run-pinned: it accepts the claim-drawn "
-                f"mutant(s) {survived}, so it encodes the recorded run rather "
-                "than the claim"
+                f"run-pinned: the expectation accepts the claim-drawn mutant(s) "
+                f"{survived}, so it encodes the recorded run rather than "
+                "the claim"
             )
         return (
-            f"expectation is claim-pinned: rejected {self.killed}/{self.total} "
-            "mutants, including every claim-drawn mutant"
+            f"claim-pinned: rejected {self.killed}/{self.total} mutants, "
+            "including every claim-drawn mutant"
         )
 
 
