@@ -17,10 +17,9 @@ from stepfork.export.generator import (
     ExportExistsError,
     export_pytest_test,
 )
+from stepfork.export.mutants import recorded_output
 from stepfork.trace import (
     JsonValue,
-    RunEnd,
-    RunStatus,
     Trace,
     TraceStorageError,
     validate_bundle,
@@ -156,7 +155,7 @@ def export_command(
         expectation = _load_expectation(expect_output)
         has_expectation = True
     else:
-        expectation = _recorded_output(trace)
+        expectation = recorded_output(trace)
         has_expectation = expectation is not None
         warning = RECORDED_OUTPUT_WARNING
 
@@ -221,13 +220,6 @@ def _load_expectation(path: Path) -> JsonValue:
         console.print(f"[red]--expect-output is not valid JSON:[/red] {exc.msg}")
         raise typer.Exit(2) from exc
     return redact_json(payload).value
-
-
-def _recorded_output(trace: Trace) -> JsonValue | None:
-    for event in reversed(trace.events):
-        if isinstance(event, RunEnd) and event.run_status is RunStatus.COMPLETED:
-            return event.output
-    return None
 
 
 def _safe_stem(path: Path) -> str:
