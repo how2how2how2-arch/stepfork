@@ -24,12 +24,15 @@ Commands:
 - [minimize](#minimize)
 - [diff](#diff)
 - [export](#export)
+- [score](#score)
+- [run](#run)
 
 Exit code conventions:
 
 - `0` success (or a replayed failure reproduced intentionally).
 - `1` the run behaved differently, or the operation could not complete safely.
-- `2` invalid, unreadable, or unresolvable input.
+- `2` invalid, unreadable, or unresolvable input, or (for `run`) a check that
+  could not execute.
 - `3` `validate --verify-integrity` on a legacy bundle without integrity
   metadata.
 
@@ -519,6 +522,127 @@ Common errors:
   path. Copy it beside the test, or pass `--bundle`.
 - `no expectation to score` -- the test asserts the recorded run without an
   `--expect-output`, so there is no claim for a mutant to separate from it.
+
+## run
+
+Run an exported regression test and write the receipt yourself.
+
+```text
+Usage: stepfork run [OPTIONS] TEST
+```
+
+`stepfork export` writes a pytest file; this command runs it and classifies the
+outcome. The classification is the point: a check that **could not execute** --
+the bundle it names is not there, a fixture cannot be built, nothing was
+collected -- is reported as `could_not_execute`, which is neither a pass nor a
+caught regression.
+
+pytest's exit status does not carry that distinction. Measured on pytest 9.1.1
+against the file `stepfork export` writes:
+
+| Case | pytest exit | JUnit kind |
+|---|---|---|
+| the agent's behaviour changed | 1 | `failure` |
+| the trace bundle is missing | 1 | `failure` |
+| a dependency is absent | 1 | `failure` |
+| a fixture cannot be built | 1 | `error` |
+| collection failed | 2 | `error` |
+| no tests were collected | 5 | (none) |
+
+The first two rows are identical, so a pipeline that keys on either one reports
+a missing artifact as a caught regression. `run` resolves the bundle **before**
+launching pytest, so that row becomes `could_not_execute` and no failure is
+manufactured for it.
+
+The receipt is written by the runner after the child process exits -- never by
+the test -- and it names the three inputs the verdict rests on: the raw exit
+status, a digest of the bundle, and a hash of the test file.
+
+Arguments:
+
+| Argument | Description |
+|---|---|
+| `TEST` | The pytest file `stepfork export` wrote. Required. |
+
+Options:
+
+| Option | Description |
+|---|---|
+| `--bundle <path>` | Name the `.sftrace` bundle instead of reading `TRACE_PATH` from the test. |
+| `--receipt <path>` | Write a JSON receipt of what the runner observed. |
+| `--json` | Print the receipt to stdout. |
+| `--pytest-arg <str>` | Extra argument for the pytest subprocess. Repeat per argument. |
+| `--timeout-seconds <float>` | Stop the check after this long and report `could_not_execute`. |
+| `--help` | Show command help and exit. |
+
+A passing run:
+
+```bash
+stepfork run test_notify_regression.py --receipt receipts/notify.json
+```
+
+```text
+Test             test_notify_regression.py
+Test sha256      129694b27992161b
+Bundle           notify.sftrace
+Bundle digest    7f3eaeed6a9820ce
+pytest exit      0
+Collected        1 test(s), 0 failure(s), 0 error(s), 0 skipped
+
+Verdict: PASSED
+Receipt: receipts/notify.json
+```
+
+The same test with its bundle removed says what happened instead of reporting a
+regression:
+
+```text
+Verdict: COULD NOT EXECUTE
+Reason: bundle_missing
+the bundle this test names is not there: notify.sftrace; the check cannot run,
+so this is not a regression
+The check did not execute, so this run says nothing about the agent's behaviour.
+```
+
+The receipt:
+
+```json
+{
+  "receipt_version": 1,
+  "verdict": "could_not_execute",
+  "reason": "bundle_missing",
+  "exit_status": null,
+  "bundle": "notify.sftrace",
+  "bundle_digest": null,
+  "test": "test_notify_regression.py",
+  "test_sha256": "129694b2...",
+  "counts": {"tests": 0, "failures": 0, "errors": 0, "skipped": 0},
+  "command": [],
+  "duration_ms": 0,
+  "stepfork_version": "0.2.0",
+  "created_at": "2026-10-18T16:53:50Z"
+}
+```
+
+Exit codes:
+
+| Code | Meaning |
+|---|---|
+| `0` | `passed`: the check ran and agreed. |
+| `1` | `failed`: the check ran and disagreed -- a caught regression. |
+| `2` | `could_not_execute`: the check never ran, or could not be built. |
+
+The `reason` field names which: `bundle_missing`, `bundle_unreadable`,
+`check_error` (a fixture or collection error),
+`no_tests_collected`, `pytest_unavailable`, `pytest_error`, `report_missing`.
+
+**What `run` does not catch.** The runner pre-checks the artifacts it can name
+from the test's literals -- the bundle. It does not pre-check what the test body
+*imports*: an entrypoint the local tree cannot resolve, or a dependency
+imported inside the test, raises inside the test body, and pytest reports an
+exception raised there as `failure`, exactly as it reports a changed return
+value. Those still read as `failed`. Resolving `ENTRYPOINT` before the launch,
+the way the bundle is resolved, is the follow-up that would move them too.
 
 ---
 
