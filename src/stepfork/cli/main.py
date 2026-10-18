@@ -12,6 +12,7 @@ from stepfork.cli.fork import fork_command
 from stepfork.cli.inspect import inspect_command
 from stepfork.cli.minimize import minimize_command
 from stepfork.cli.replay import replay_command
+from stepfork.cli.run import run_command
 from stepfork.cli.score import score_command
 from stepfork.cli.validate import validate_command
 
@@ -29,6 +30,7 @@ app.command("fork")(fork_command)
 app.command("inspect")(inspect_command)
 app.command("minimize")(minimize_command)
 app.command("replay")(replay_command)
+app.command("run")(run_command)
 app.command("score")(score_command)
 app.command("validate")(validate_command)
 
