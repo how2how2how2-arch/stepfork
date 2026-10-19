@@ -20,6 +20,7 @@ from stepfork.minimize.models import (
     MinimizationResult,
 )
 from stepfork.minimize.signature import (
+    ReplayNeverReachedRecordedCall,
     detect_failure_signature,
     format_signature,
 )
@@ -110,6 +111,10 @@ class MinimizationEngine:
                 timeout_seconds=self.timeout_seconds,
             )
             self.total_replay_attempts += 1
+        except ReplayNeverReachedRecordedCall:
+            # A refusal, not a failed minimization: the caller must be able to
+            # tell them apart by exit status, so it travels untouched.
+            raise
         except Exception as exc:
             return MinimizationResult(
                 success=False,
