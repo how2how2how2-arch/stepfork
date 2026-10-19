@@ -13,6 +13,7 @@ from rich.table import Table
 from stepfork.minimize.delta_debug import create_minimized_trace
 from stepfork.minimize.engine import MinimizationEngine, generate_report
 from stepfork.minimize.models import MinimizationReport
+from stepfork.minimize.signature import ReplayNeverReachedRecordedCall
 from stepfork.trace.models import Trace
 
 console = Console()
@@ -149,6 +150,13 @@ def minimize_command(
     except KeyboardInterrupt:
         console.print("\n[yellow]Minimization interrupted by user[/yellow]")
         raise typer.Exit(1) from None
+    except ReplayNeverReachedRecordedCall as exc:
+        # The run could not reach the failure it was asked to minimize, so it
+        # says nothing about the trace. Exit 2 separates that from a failed
+        # minimization (exit 1) and from invalid input, which prints its own
+        # message. See issue #22.
+        console.print(f"\n[yellow]✗ Cannot minimize:[/yellow] {exc}")
+        raise typer.Exit(2) from None
     except Exception as exc:
         console.print(
             f"\n[red]Minimization failed:[/red] {exc}",
