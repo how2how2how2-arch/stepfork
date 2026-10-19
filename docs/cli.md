@@ -34,7 +34,8 @@ Exit code conventions:
 - `0` success (or a replayed failure reproduced intentionally).
 - `1` the run behaved differently, or the operation could not complete safely.
 - `2` invalid, unreadable, or unresolvable input, or (for `run`) a check that
-  could not execute.
+  could not execute, or (for `minimize`) a replay that never reached the
+  failure the trace records.
 - `3` `validate --verify-integrity` on a legacy bundle without integrity
   metadata.
 
@@ -320,11 +321,17 @@ Exit codes:
 
 - `0` minimization succeeded and produced a valid minimal trace.
 - `1` minimization failed (no failure detected, or minimization error).
-- `2` invalid input, unreadable trace, or unresolvable entrypoint.
+- `2` invalid input, unreadable trace, or unresolvable entrypoint, or a replay
+  that never reached the failure the trace records.
 
 Common errors:
 
 - `Failed to detect original failure signature: trace replay completed successfully; no failure to minimize` - the trace does not fail when replayed.
+- `Cannot minimize: the replay failed before reaching any recorded call ...` - the
+  recording fails after at least one dependency call and the replay consumed
+  none of them, so what it raised is not the recording's failure. Either the
+  fixture could not be built, or the change moved the failure earlier than the
+  recording. No bundle is written; exception type cannot decide between the two.
 - `cannot resolve entrypoint ...` - the entrypoint specification is invalid or the module cannot be imported.
 - `Minimized trace does not reproduce the original failure` - rare internal error during delta debugging.
 
