@@ -22,11 +22,22 @@ from stepfork.replay import (
     ReplaySession,
 )
 from stepfork.trace.canonical import canonical_json_bytes
-from stepfork.trace.models import JsonValue, Trace
+from stepfork.trace.models import EventType, JsonValue, Trace
 
 
 class FailureDetectionError(Exception):
     """Raised when failure signature cannot be determined."""
+
+
+class ReplayNeverReachedRecordedCall(FailureDetectionError):
+    """Raised when the replay failed without consuming any recorded call.
+
+    The recording says the failure happened after at least one dependency call,
+    so a replay that consumed none of them never reached the place the trace
+    fails. The failure it raised instead is not the recording's failure, and a
+    bundle minimized from it would be derived from something that did not
+    happen. See issue #22.
+    """
 
 
 def detect_failure_signature(
@@ -67,15 +78,16 @@ def detect_failure_signature(
     except Exception as exc:
         raise FailureDetectionError(f"cannot create replay session: {exc}") from exc
 
-    # Attempt replay and capture the failure
+    # Attempt replay and capture the failure. The session's divergence and
+    # consumed-call count are read *after* the attempt in every outcome: an
+    # exception can leave state worth reporting, and the success path is not
+    # the only one that carries a divergence.
     exception: BaseException | None = None
     actual_output: Any = None
-    divergence_error: ReplayError | None = None
 
     try:
-        with session as replay:
+        with session:
             actual_output = entrypoint_fn()
-            divergence_error = replay.divergence
     except ReplayPolicyError as exc:
         # The replay harness refused execution (forbidden/manual/derived mode,
         # unauthorized live tool). The agent never ran its check, so this is
@@ -95,12 +107,37 @@ def detect_failure_signature(
         # Application exception during replay
         exception = exc
 
+    divergence_error: ReplayError | None = session.divergence
+    consumed = len(session.calls) - session.pending
+
     # A policy refusal the agent swallowed internally still poisons the
     # outcome; refuse instead of recording it as a divergence signature.
     if isinstance(divergence_error, ReplayPolicyError):
         raise FailureDetectionError(
             f"replay policy refused the attempt: {divergence_error}"
         ) from divergence_error
+
+    # The recording fails after at least ``calls_before`` dependency calls. A
+    # replay that consumed none of them never reached that place, so whatever
+    # it raised is not the recording's failure -- and minimizing from it writes
+    # a bundle derived from something that did not happen. Exception type
+    # cannot decide this: a setup error and a change that moves the failure
+    # earlier are the same observation. See issue #22.
+    calls_before = _calls_before_recorded_failure(trace)
+    if (
+        exception is not None
+        and consumed == 0
+        and calls_before >= 1
+        and divergence_error is None
+    ):
+        raise ReplayNeverReachedRecordedCall(
+            "the replay failed before reaching any recorded call "
+            f"({_describe_attempt(exception, actual_output)}), and the trace "
+            f"records its failure after {calls_before} dependency call(s): "
+            "this run never reached the recorded failure. Either the fixture "
+            "could not be built, or the change moved the failure earlier than "
+            "the recording. No bundle written."
+        )
 
     # Determine the failure signature based on what happened
     if exception is not None:
@@ -118,6 +155,34 @@ def detect_failure_signature(
     raise FailureDetectionError(
         "trace replay completed successfully; no failure to minimize"
     )
+
+
+def _calls_before_recorded_failure(trace: Trace) -> int:
+    """Count dependency calls that precede the trace's own error event.
+
+    A recording that fails during a dependency call still has that call's
+    ``tool_call``/``llm_request`` event before its ``error`` event, so this
+    counts the calls a faithful replay has to reach before it can fail the
+    way the recording did. A trace with no error event returns 0: it records
+    no failure, so nothing here can be compared against it.
+    """
+    calls = 0
+    for event in trace.events:
+        if event.type is EventType.ERROR:
+            return calls
+        if event.type in (EventType.LLM_REQUEST, EventType.TOOL_CALL):
+            calls += 1
+    return 0
+
+
+def _describe_attempt(
+    exception: BaseException | None,
+    actual_output: Any,
+) -> str:
+    """Name what the attempt did, for a refusal message a reader can act on."""
+    if exception is None:
+        return f"the entrypoint returned {actual_output!r}"
+    return f"{type(exception).__name__}: {exception}"
 
 
 def _signature_from_exception(
