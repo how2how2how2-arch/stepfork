@@ -10,10 +10,11 @@ look the same from inside the replay. See issue #22.
 
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 
 import pytest
-from typer.testing import CliRunner
+from typer.testing import CliRunner, Result
 
 from stepfork import llm_request, record, trace_tool
 from stepfork.cli.main import app
@@ -34,12 +35,13 @@ def lookup_customer(customer_id: str) -> dict[str, str]:
 
 
 def _plan() -> dict[str, str]:
-    return llm_request(
+    plan: dict[str, str] = llm_request(
         provider="fake",
         model="m",
         input={"messages": [{"role": "user", "content": "refund?"}]},
         call=lambda: {"content": "look up then refund", "model": "m"},
     )
+    return plan
 
 
 def _failing_agent() -> dict[str, str]:
@@ -67,7 +69,9 @@ def failing_trace(tmp_path: Path) -> Path:
 
 
 def imports_a_missing_dependency() -> None:
-    import definitely_not_installed_module  # noqa: F401
+    # Dynamic on purpose: a literal import of a module that does not exist is
+    # an error mypy would report for this file.
+    importlib.import_module("definitely_not_installed_module")
 
 
 def setup_error_with_the_recorded_type() -> None:
@@ -84,7 +88,7 @@ def returns_without_failing() -> dict[str, str]:
     return {"ok": "true"}
 
 
-def _run_cli(trace: Path, entrypoint: str, out: Path):
+def _run_cli(trace: Path, entrypoint: str, out: Path) -> Result:
     return runner.invoke(
         app,
         [
