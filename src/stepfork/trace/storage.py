@@ -174,23 +174,35 @@ def _has_required_bundle_files(path: Path) -> bool:
 
 
 def _write_manifest(path: Path, manifest: TraceManifest) -> None:
+    # newline="" keeps the bundle byte-identical on every platform. Bundle
+    # digests are SHA-256 over file bytes (trace/integrity.py::_hash_file and
+    # export/receipt.py::bundle_digest), so letting the platform translate
+    # "\n" to "\r\n" would make a bundle written on Windows fail
+    # verification everywhere else, and fail on Windows for a bundle written
+    # elsewhere.
     path.write_text(
         manifest.model_dump_json(indent=2) + "\n",
         encoding="utf-8",
+        newline="",
     )
 
 
 def _write_events(path: Path, events: list[Event]) -> None:
-    with path.open("w", encoding="utf-8") as file:
+    # newline="" for the same reason as _write_manifest: events.jsonl is
+    # hashed as bytes.
+    with path.open("w", encoding="utf-8", newline="") as file:
         for event in events:
             file.write(_event_adapter.dump_json(event).decode("utf-8"))
             file.write("\n")
 
 
 def _write_redactions(path: Path, redactions: RedactionManifest) -> None:
+    # newline="" for the same reason as _write_manifest: redactions.json is
+    # hashed as bytes.
     path.write_text(
         redactions.model_dump_json(indent=2) + "\n",
         encoding="utf-8",
+        newline="",
     )
 
 

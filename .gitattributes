@@ -1,0 +1,6 @@
+# Files inside a .sftrace bundle are hashed as bytes
+# (trace/integrity.py::_hash_file, export/receipt.py::bundle_digest), so a
+# checkout must not rewrite their newlines. Without this, git's default
+# core.autocrlf on Windows turns every bundle file into CRLF and recorded
+# digests no longer match.
+**/*.sftrace/** text eol=lf
