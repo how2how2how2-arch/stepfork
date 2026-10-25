@@ -48,3 +48,66 @@ jobs:
 
       - name: Build package
         run: uv build
+
+  # Cross-platform smoke tests (#28).
+  #
+  # Scope is deliberately narrow: this job answers "does the package install,
+  # does the console script start, and does the saved trace format round-trip
+  # on this OS" -- not "does the whole suite pass here". The full suite, lint,
+  # type checks and the build stay in `test` above and remain Linux-only, so
+  # adding an OS costs one short job instead of a full matrix.
+  #
+  # Python versions are the lowest and the highest supported (3.11 and 3.13,
+  # per requires-python). The middle version stays covered by the Linux matrix;
+  # that is a deliberate cost choice, not a claim of identical coverage.
+  #
+  # Known platform limitation, deliberately not covered here: the committed
+  # `.sftrace` bundles under `examples/` and `tests/golden/` record SHA-256
+  # digests over file bytes (`trace/integrity.py::_hash_file`,
+  # `export/receipt.py::bundle_digest`), while the writers in
+  # `trace/storage.py` open files in text mode without `newline=""`. A bundle
+  # written on Windows therefore carries CRLF and cannot reproduce a digest
+  # recorded on Linux, and a Windows checkout (git's default `core.autocrlf=true`)
+  # rewrites those committed files before any test runs. Making the on-disk
+  # format byte-identical across platforms is a separate change
+  # (`newline=""` and/or `.gitattributes`). Until that lands, this job runs the
+  # save/load and CLI tests, which round-trip within a single platform and never
+  # read a committed bundle.
+  smoke:
+    name: Smoke ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ["macos-latest", "windows-latest"]
+        python-version: ["3.11", "3.13"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.1.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Sync dependencies
+        run: uv sync --locked --python ${{ matrix.python-version }}
+
+      # The console script, not the in-process test runner: this is the part
+      # that actually breaks on a new OS (entry point, shim, launcher).
+      - name: CLI starts
+        run: uv run --no-sync stepfork --version
+
+      - name: CLI help
+        run: uv run --no-sync stepfork --help
+
+      # Trace save/load round-trip plus CLI startup/version/no-command tests.
+      # Both files use tmp_path or the in-process runner, so they exercise the
+      # format on this OS without depending on a committed bundle.
+      - name: Trace save/load and CLI smoke tests
+        run: uv run --no-sync pytest tests/unit/test_storage.py tests/unit/test_cli.py -q
