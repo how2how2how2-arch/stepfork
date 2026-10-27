@@ -349,6 +349,12 @@ def test_saved_bundle_files_contain_no_crlf(tmp_path: Path) -> None:
     newline="" argument. It fails on Windows if the argument is removed, which
     is the mutation it guards. The companion test below shows why the guard is
     worth having at all, on any platform.
+
+    The name list is asserted to equal the files the bundle actually writes,
+    rather than being trusted. A hand-typed subset is how integrity.json came
+    to be missing here: every writer looked guarded while one was not, and the
+    omission was invisible because the list and the bundle grew apart. Adding
+    a bundle file now fails this test until it is covered.
     """
     trace = Trace(agent_name="line-endings")
     trace.add(RunStart(input={"prompt": "two\nlines"}))
@@ -356,7 +362,13 @@ def test_saved_bundle_files_contain_no_crlf(tmp_path: Path) -> None:
 
     destination = trace.save(tmp_path / "endings.sftrace")
 
-    for name in ("manifest.json", "events.jsonl", "redactions.json"):
+    names = ("manifest.json", "events.jsonl", "redactions.json", "integrity.json")
+    written = {path.name for path in destination.iterdir() if path.is_file()}
+    assert written == set(names), (
+        f"bundle writes files this test does not check: {sorted(written - set(names))}"
+    )
+
+    for name in names:
         payload = (destination / name).read_bytes()
         assert b"\r\n" not in payload, f"{name} contains CRLF"
         assert b"\n" in payload, f"{name} contains no line separator at all"

@@ -63,9 +63,17 @@ def write_bundle_integrity(path: Path) -> IntegrityRecord:
     record = IntegrityRecord(
         files={filename: _hash_file(path / filename) for filename in INTEGRITY_FILES}
     )
+    # newline="" for the same reason as the other bundle writers in
+    # trace/storage.py: this file is hashed as bytes by
+    # export/receipt.py::bundle_digest, which walks every file in the bundle.
+    # integrity.json does not hash itself (INTEGRITY_FILES covers the three
+    # payload files), so on Windows this file would be written with CRLF and
+    # change the bundle digest while verify_bundle_integrity still reported
+    # "verified".
     (path / INTEGRITY_FILE).write_text(
         record.model_dump_json(indent=2) + "\n",
         encoding="utf-8",
+        newline="",
     )
     return record
 
