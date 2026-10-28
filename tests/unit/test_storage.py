@@ -331,3 +331,102 @@ def test_overwrite_roundtrip_through_backup(tmp_path: Path) -> None:
     assert loaded.totals.tool_calls == 1
     assert not list(tmp_path.glob("*.bak-*"))
     assert not list(tmp_path.glob(".demo.sftrace.bak-*"))
+
+
+# --- Bundle files must be byte-identical across platforms -------------------
+#
+# A bundle's files are hashed as bytes (trace/integrity.py::_hash_file and
+# export/receipt.py::bundle_digest), so a platform that rewrites "\n" to "\r\n"
+# while writing changes every recorded digest. The writers in trace/storage.py
+# therefore pass newline="".
+
+
+def test_saved_bundle_files_contain_no_crlf(tmp_path: Path) -> None:
+    """Saved bundle files use LF only, never CRLF.
+
+    Note on what this test can and cannot show: on POSIX the platform's
+    newline translation is a no-op, so this passes with or without the
+    newline="" argument. It fails on Windows if the argument is removed, which
+    is the mutation it guards. The companion test below shows why the guard is
+    worth having at all, on any platform.
+
+    The name list is asserted to equal the files the bundle actually writes,
+    rather than being trusted. A hand-typed subset is how integrity.json came
+    to be missing here: every writer looked guarded while one was not, and the
+    omission was invisible because the list and the bundle grew apart. Adding
+    a bundle file now fails this test until it is covered.
+    """
+    trace = Trace(agent_name="line-endings")
+    trace.add(RunStart(input={"prompt": "two\nlines"}))
+    trace.add(RunEnd(run_status=RunStatus.COMPLETED))
+
+    destination = trace.save(tmp_path / "endings.sftrace")
+
+    names = ("manifest.json", "events.jsonl", "redactions.json", "integrity.json")
+    written = {path.name for path in destination.iterdir() if path.is_file()}
+    assert written == set(names), (
+        f"bundle writes files this test does not check: {sorted(written - set(names))}"
+    )
+
+    for name in names:
+        payload = (destination / name).read_bytes()
+        assert b"\r\n" not in payload, f"{name} contains CRLF"
+        assert b"\n" in payload, f"{name} contains no line separator at all"
+
+
+def test_bundle_digest_changes_when_a_file_gains_crlf(tmp_path: Path) -> None:
+    """Rewriting newlines changes the digest, which is why the writer pins them.
+
+    This is the stake behind the previous test: it demonstrates that the
+    digest covers line endings rather than abstracting over them. It passes
+    before and after the newline fix -- it describes the mechanism, not the
+    fix -- and exists so the requirement is visible to anyone editing the
+    writers.
+    """
+    from stepfork.export.receipt import bundle_digest
+
+    trace = Trace(agent_name="digest-lines")
+    trace.add(RunStart(input={"prompt": "hello"}))
+    destination = trace.save(tmp_path / "digest.sftrace")
+
+    before = bundle_digest(destination)
+
+    manifest = destination / "manifest.json"
+    manifest.write_bytes(manifest.read_bytes().replace(b"\n", b"\r\n"))
+
+    assert bundle_digest(destination) != before
+
+
+def test_gitattributes_pins_bundle_files_to_lf() -> None:
+    """A Windows checkout must not rewrite bundle files to CRLF.
+
+    git's default core.autocrlf on Windows converts text files at checkout,
+    which corrupts the recorded digests before any test runs. The rule in
+    .gitattributes is what prevents that, so this asserts the rule resolves
+    for a committed bundle file. Unlike the writer assertion above, this one
+    fails on every platform if the rule is missing or misspelled: `*.sftrace/*`
+    and `*.sftrace/**/*` do not match nested files, `**/*.sftrace/**` does.
+    """
+    import shutil
+    import subprocess
+
+    repo = Path(__file__).resolve().parents[2]
+    git = shutil.which("git")
+    if git is None:
+        pytest.skip("git is not installed")
+    if not (repo / ".git").exists():
+        pytest.skip("not running from a git checkout")
+
+    relative = "tests/golden/successful_run.sftrace/manifest.json"
+    if not (repo / relative).is_file():
+        pytest.skip(f"{relative} is missing")
+
+    completed = subprocess.run(
+        [git, "check-attr", "eol", "--", relative],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert completed.stdout.strip().endswith("eol: lf"), completed.stdout
