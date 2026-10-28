@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 from pathlib import Path
 from typing import Annotated
 
@@ -9,8 +10,13 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from stepfork.export.receipt import bundle_digest
 from stepfork.trace import TraceStorageError, ValidationResult, validate_bundle
-from stepfork.trace.integrity import IntegrityStatus, verify_bundle_integrity
+from stepfork.trace.integrity import (
+    IntegrityStatus,
+    is_sha256_digest,
+    verify_bundle_integrity,
+)
 from stepfork.trace.storage import load_trace
 
 console = Console()
@@ -51,6 +57,16 @@ def validate_command(
             help="Verify per-event payload hashes and bundle integrity metadata.",
         ),
     ] = False,
+    expect_digest: Annotated[
+        str | None,
+        typer.Option(
+            "--expect-digest",
+            help=(
+                "Require the bundle's byte digest to equal this SHA-256, as "
+                "recorded in a receipt by `stepfork run`."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Validate a `.sftrace` bundle."""
     strict = not partial
@@ -63,6 +79,8 @@ def validate_command(
 
     _print_header(path, strict=strict)
     _print_metadata(path, strict=strict)
+    if expect_digest is not None:
+        _enforce_expected_digest(path, expect_digest)
     if verify_integrity and structure_result.valid:
         _print_integrity(path)
 
@@ -158,3 +176,48 @@ def _has_legacy_integrity_issue(result: ValidationResult) -> bool:
         issue.code == "integrity_unverified" and issue.location == "integrity.json"
         for issue in result.issues
     )
+
+
+def _enforce_expected_digest(path: Path, expected: str) -> None:
+    """Require the bundle's byte digest to equal an externally supplied one.
+
+    The digest names every file in the bundle, ``integrity.json`` included, so
+    it answers a question the integrity record cannot: whether this is the
+    bundle the digest was computed over, rather than a bundle that carries an
+    integrity record. Whoever edits a payload can rewrite the record that
+    covers it, which leaves ``--verify-integrity`` reporting a clean bundle.
+    """
+    requested = expected.strip().lower()
+    if not is_sha256_digest(requested):
+        console.print(
+            f"[red]✗[/red] --expect-digest is not a SHA-256 hex digest: {expected!r}"
+        )
+        console.print(
+            "  Expected 64 hexadecimal characters. Nothing was compared, so "
+            "this says nothing about the bundle."
+        )
+        raise typer.Exit(2)
+
+    if not path.is_dir():
+        # Structure validation reports a missing or unreadable bundle and can
+        # say which file is absent; there is nothing to digest yet.
+        return
+
+    actual = bundle_digest(path)
+    if hmac.compare_digest(actual, requested):
+        console.print(f"Bundle digest: [green]MATCH[/green] {actual}")
+        console.print()
+        return
+
+    console.print("Bundle digest: [red]NO MATCH[/red]")
+    console.print(f"  expected {requested}")
+    console.print(f"  actual   {actual}")
+    console.print()
+    console.print(
+        "  These are not the bytes that digest was computed over. A matching "
+        "integrity.json does not rule this out: it records hashes the bundle "
+        "itself carries, so it can be rewritten along with the files it covers."
+    )
+    console.print()
+    console.print("[red]Bundle digest check failed.[/red]")
+    raise typer.Exit(1)

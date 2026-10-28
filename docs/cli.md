@@ -60,6 +60,7 @@ Options:
 |---|---|
 | `--partial` | Allow incomplete in-progress traces, skipping `run_start` checks. |
 | `--verify-integrity` | Verify per-event payload hashes and bundle integrity metadata. |
+| `--expect-digest` | Require the bundle's byte digest to equal this SHA-256, as recorded in a receipt by `stepfork run`. |
 | `--help` | Show command help and exit. |
 
 Strict mode (default) requires exactly one `run_start` and an error event for
@@ -83,6 +84,52 @@ stepfork validate failure.sftrace --verify-integrity
 Validation passed.
 ```
 
+### Checking a bundle you were given
+
+`--verify-integrity` checks each payload file against the `integrity.json` the
+bundle carries. That catches a file which was corrupted or edited by itself. It
+cannot catch a bundle whose record was rewritten with the payload it covers:
+whoever edits `events.jsonl` can recompute the three SHA-256 values in
+`integrity.json`, and the bundle then verifies clean. A file the record does not
+name is invisible to it too.
+
+A digest from outside the bundle closes that gap. `stepfork run --receipt`
+records one -- SHA-256 over every file in the bundle, taken in sorted
+relative-path order -- so a bundle and its receipt can be checked against each
+other after the fact:
+
+```bash
+stepfork run tests/test_regression.py --receipt receipts/notify.json
+stepfork validate notify.sftrace --expect-digest "$(jq -r .bundle_digest receipts/notify.json)"
+```
+
+```text
+Bundle digest: MATCH 2a37f0c94f1db9a2...
+```
+
+Any file added, removed or changed in the bundle moves the digest, `integrity.json`
+included. A mismatch prints both digests and exits `1`:
+
+```text
+Bundle digest: NO MATCH
+  expected 2a37f0c94f1db9a2...
+  actual   7c1e55b3a08d4421...
+
+  These are not the bytes that digest was computed over. A matching
+  integrity.json does not rule this out: it records hashes the bundle itself
+  carries, so it can be rewritten along with the files it covers.
+
+Bundle digest check failed.
+```
+
+The digest is compared in lower case after trimming whitespace, so a value
+copied out of a JSON receipt needs no cleanup.
+
+What this does not prove: that the bundle is honest, only that it is the one the
+digest names. A digest that arrives inside the same archive as the bundle is
+worth nothing -- it has to travel by a route the bundle's author cannot edit,
+such as a CI log or the receipt file itself.
+
 Common errors:
 
 - `Validation failed: <N> issues.` with a code per issue (for example
@@ -91,6 +138,9 @@ Common errors:
   `invalid_event`, `unsupported_schema`). Exit `2`.
 - `Bundle has no integrity.json metadata.` (`UNVERIFIED (legacy bundle)`). Exit
   `3` with `--verify-integrity`.
+- `Bundle digest check failed.` with the expected and actual digests. Exit `1`.
+- `--expect-digest is not a SHA-256 hex digest: '<value>'`. Exit `2` -- nothing
+  was compared, so this is not a verdict about the bundle.
 
 ---
 
