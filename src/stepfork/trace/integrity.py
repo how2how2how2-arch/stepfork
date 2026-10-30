@@ -58,6 +58,11 @@ class IntegrityResult(BaseModel):
     verified_files: list[str] = Field(default_factory=list)
 
 
+def is_sha256_digest(value: str) -> bool:
+    """Whether ``value`` is a lowercase SHA-256 hex digest."""
+    return _SHA256_RE.fullmatch(value) is not None
+
+
 def write_bundle_integrity(path: Path) -> IntegrityRecord:
     """Write integrity metadata for the finalized bundle payload files."""
     record = IntegrityRecord(
@@ -172,7 +177,7 @@ def _validate_record(record: IntegrityRecord) -> list[IntegrityIssue]:
                     file=filename,
                 )
             )
-        elif _SHA256_RE.fullmatch(digest) is None:
+        elif not is_sha256_digest(digest):
             issues.append(
                 IntegrityIssue(
                     code="integrity_metadata_invalid",
