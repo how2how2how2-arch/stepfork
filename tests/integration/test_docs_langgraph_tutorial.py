@@ -173,4 +173,4 @@ def test_tutorial_links_its_references() -> None:
     assert "]( ../langgraph.md)" not in text
     assert "](../langgraph.md)" in text
     assert "examples/langgraph_agent" in text
-    assert "pip install \"stepfork[langgraph]\"" in text
+    assert 'pip install "stepfork[langgraph]"' in text
