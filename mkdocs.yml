@@ -20,6 +20,7 @@ nav:
   - Getting started: getting-started.md
   - Concepts: concepts.md
   - Examples: examples.md
+  - Tutorial: tutorials/langgraph-triage.md
   - Real-LLM case study: real-llm-case-study.md
   - Guide:
       - recording.md
