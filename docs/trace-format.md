@@ -8,11 +8,15 @@ example.sftrace/
 ├── manifest.json
 ├── events.jsonl
 ├── redactions.json
+├── fork.json          (only for a bundle produced by `stepfork fork`)
 └── integrity.json
 ```
 
 `integrity.json` was added after the initial v0.1 storage work. Older bundles
-without it remain loadable but are reported as `unverified_legacy`.
+without it remain loadable but are reported as `unverified_legacy`. `fork.json`
+was added the same way: it is present only on a bundle written by a fork, and a
+bundle without it loads and verifies exactly as before, so no schema version
+change was needed.
 
 ## Manifest
 
@@ -75,6 +79,35 @@ and provider changes are treated as replay divergence.
 Paths use JSON Pointer escaping for `~` and `/`. Redaction metadata must never
 store original secrets, reversible encodings, or hashes of secret values.
 
+## Fork provenance
+
+`fork.json` records that a bundle was produced by `stepfork fork`, and what that
+fork replaced:
+
+```json
+{
+  "fork_info": {
+    "parent_trace_path": "run.sftrace",
+    "parent_run_id": "run_01J...",
+    "fork_point_event_id": "evt_003",
+    "fork_point_step": 3,
+    "fork_timestamp": "2025-01-01T00:00:00Z",
+    "overrides_applied": 1
+  },
+  "overridden_event_ids": ["evt_002"]
+}
+```
+
+`overridden_event_ids` is what makes the record answerable per event: the count
+in `fork_info` says how many outputs were replaced, and this list says which
+ones. Without it a reader holding only the bundle cannot tell a recorded output
+from one the fork replaced. `read_fork_provenance()` returns this record, or
+`None` for a bundle that was not forked.
+
+Bundles written before this file existed carry no provenance, and a bundle
+without `fork.json` is indistinguishable from a recorded run. Provenance is
+therefore evidence about a bundle, not a claim that this one was never forked.
+
 ## Integrity
 
 `integrity.json` stores SHA-256 digests of the exact persisted bytes of:
@@ -83,14 +116,23 @@ store original secrets, reversible encodings, or hashes of secret values.
 - `events.jsonl`
 - `redactions.json`
 
+`fork.json` is included when it is present, so recorded provenance is covered by
+the same record and editing it is reported as a mismatch. A bundle whose
+provenance file is present but absent from the record is reported as
+`integrity_unlisted_file`, so the file cannot be kept while its digest is
+dropped. Deleting both the file and its digest leaves a bundle that verifies as
+an ordinary recorded run; that limit is the reason this is described as evidence
+about the bundle rather than proof of its origin.
+
 It does not include itself. This detects accidental modification and ordinary
 tampering when the expected integrity record is trusted. It is not a digital
 signature.
 
 ## Compatibility
 
-The schema version is currently `0.1`. New readers should keep loading older
-valid v0.1 bundles where possible. Missing integrity metadata means unverified
+The schema version is currently `0.1`, and the optional `fork.json` did not
+change it. New readers should keep loading older valid v0.1 bundles where
+possible. Missing integrity metadata means unverified
 legacy, not verified. Older or hand-built events may also lack payload hashes;
 they can still replay if their stored inputs exactly match the live calls, but
 Stepfork reports computed fingerprints in diagnostics rather than silently

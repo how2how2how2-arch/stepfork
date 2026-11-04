@@ -13,6 +13,8 @@ from stepfork.fork.models import (
     OverrideSpec,
 )
 from stepfork.fork.overrides import OverrideRegistry
+from stepfork.fork.provenance import ForkProvenance, write_fork_provenance
+from stepfork.trace.integrity import write_bundle_integrity
 from stepfork.trace.models import Event, Trace
 
 
@@ -234,6 +236,25 @@ def fork_trace(
         saved_path: str | None = None
         if output_path is not None:
             saved_path = str(forked_trace.save(output_path, overwrite=overwrite))
+            # fork_info describes the fork and is the only record that this
+            # bundle is one; discarding it left a saved bundle indistinguishable
+            # from a recorded run. The override targets are collected here
+            # because a count cannot tell a reader which outputs were replaced.
+            registry = OverrideRegistry(overrides)
+            write_fork_provenance(
+                saved_path,
+                ForkProvenance(
+                    fork_info=fork_info,
+                    overridden_event_ids=[
+                        event.id
+                        for event in forked_trace.events
+                        if registry.get_override(event) is not None
+                    ],
+                ),
+            )
+            # The bundle was saved before its provenance existed, so the record
+            # is rewritten to cover the file that was just added.
+            write_bundle_integrity(Path(saved_path))
 
         return ForkResult(
             success=True,

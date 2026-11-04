@@ -12,11 +12,21 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from stepfork.trace.storage import EVENTS_FILE, MANIFEST_FILE, REDACTIONS_FILE
+from stepfork.trace.storage import (
+    EVENTS_FILE,
+    FORK_FILE,
+    MANIFEST_FILE,
+    REDACTIONS_FILE,
+)
 
 INTEGRITY_FILE = "integrity.json"
 INTEGRITY_ALGORITHM = "sha256"
 INTEGRITY_FILES = (MANIFEST_FILE, EVENTS_FILE, REDACTIONS_FILE)
+# Bundle files beyond the required payload. They are hashed when they are
+# present, so provenance written alongside a trace is covered by the same
+# record, while a bundle written before they existed still verifies: the
+# required set above is what a record must carry a digest for.
+OPTIONAL_INTEGRITY_FILES = (FORK_FILE,)
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -65,8 +75,10 @@ def is_sha256_digest(value: str) -> bool:
 
 def write_bundle_integrity(path: Path) -> IntegrityRecord:
     """Write integrity metadata for the finalized bundle payload files."""
+    covered = list(INTEGRITY_FILES)
+    covered.extend(name for name in OPTIONAL_INTEGRITY_FILES if (path / name).is_file())
     record = IntegrityRecord(
-        files={filename: _hash_file(path / filename) for filename in INTEGRITY_FILES}
+        files={filename: _hash_file(path / filename) for filename in covered}
     )
     # newline="" for the same reason as the other bundle writers in
     # trace/storage.py: this file is hashed as bytes by
@@ -123,7 +135,9 @@ def verify_bundle_integrity(path: str | Path) -> IntegrityResult:
     if issues:
         return IntegrityResult(status=IntegrityStatus.MISMATCH, issues=issues)
 
-    for filename in INTEGRITY_FILES:
+    covered = list(INTEGRITY_FILES)
+    covered.extend(name for name in record.files if name not in INTEGRITY_FILES)
+    for filename in covered:
         file_path = bundle_path / filename
         if not file_path.is_file():
             issues.append(
@@ -144,6 +158,23 @@ def verify_bundle_integrity(path: str | Path) -> IntegrityResult:
                 IntegrityIssue(
                     code="integrity_mismatch",
                     message="SHA-256 mismatch.",
+                    file=filename,
+                )
+            )
+
+    # An optional file that is present but absent from the record would let a
+    # reader keep provenance the record does not vouch for, so it is reported
+    # rather than passed over.
+    recorded = record.files
+    for filename in OPTIONAL_INTEGRITY_FILES:
+        if (bundle_path / filename).is_file() and filename not in recorded:
+            issues.append(
+                IntegrityIssue(
+                    code="integrity_unlisted_file",
+                    message=(
+                        f"{filename} is present but not covered by "
+                        "the integrity record."
+                    ),
                     file=filename,
                 )
             )

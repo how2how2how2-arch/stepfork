@@ -24,6 +24,7 @@ SCHEMA_VERSION = "0.1"
 MANIFEST_FILE = "manifest.json"
 EVENTS_FILE = "events.jsonl"
 REDACTIONS_FILE = "redactions.json"
+FORK_FILE = "fork.json"
 REQUIRED_FILES = (MANIFEST_FILE, EVENTS_FILE, REDACTIONS_FILE)
 
 _event_adapter: TypeAdapter[Event] = TypeAdapter(Event)
