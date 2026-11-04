@@ -20,6 +20,7 @@ Commands:
 
 - [validate](#validate)
 - [inspect](#inspect)
+- [coverage](#coverage)
 - [replay](#replay)
 - [minimize](#minimize)
 - [fork](#fork)
@@ -215,6 +216,94 @@ Common errors:
 - Unreadable bundle. Exit `2`.
 
 ---
+
+## coverage
+
+Report instrumentation coverage for a `.sftrace` bundle: which dependency calls
+the bundle recorded, and how much evidence it carries for each.
+
+```text
+Usage: stepfork coverage [OPTIONS] PATH
+```
+
+Arguments:
+
+| Argument | Description |
+|---|---|
+| `PATH` | Path to a `.sftrace` directory bundle. Required. |
+
+Options:
+
+| Option | Description |
+|---|---|
+| `--json` | Emit the machine-readable JSON report. |
+| `--calls` | List every observed call and its capture state. |
+| `--help` | Show command help and exit. |
+
+Each observed call is in exactly one state:
+
+| State | Meaning |
+|---|---|
+| `captured` | The outcome is present and carries a digest replay can verify. |
+| `unfingerprinted` | The outcome is present but carries no digest, so it cannot be verified. |
+| `missing` | The call was recorded, but no outcome was captured for it. |
+
+The capture rate is `captured / observed`. An `unfingerprinted` outcome is not
+coverage: replay can substitute it, but nothing in the bundle lets you check that
+it is the value that was really returned.
+
+Example:
+
+```bash
+stepfork coverage failure.sftrace
+```
+
+```text
+Stepfork Coverage
+
+Bundle:  failure.sftrace
+Agent:   notify-agent
+
+Observed calls      2 (tool 2, llm 0)
+  captured          1
+  unfingerprinted   0
+  missing           1
+Input fingerprints  2/2
+
+Capture rate: 1/2 observed calls (50.0%)
+Uninstrumented calls: not measurable (None)
+  StepFork observes only the dependency calls its own instrumentation recorded.
+  A call made outside that instrumentation writes no event, so the number of
+  uninstrumented calls cannot be counted from a bundle. The field stays null
+  rather than 0 so it cannot be read as a measured zero.
+```
+
+### What this report does not cover
+
+**Calls StepFork never instrumented.** A dependency call made without a
+`@trace_tool` wrapper or an `llm_request` boundary writes no event. Nothing in a
+bundle records that it happened, so there is no denominator that contains it. The
+report says so in words and leaves the count `null`; it does not print `0`, which
+would read as "the agent made no uninstrumented calls".
+
+This is why the report is described as coverage of *observed* calls. A bundle
+that reports `2/2` says every call it holds is verifiable, and says nothing about
+whether it holds every call the run made. Raising that number requires
+instrumenting the boundary, not reading the bundle harder.
+
+**Whether a captured value was correct.** `captured` means the bundle holds an
+outcome with a digest, which is what replay needs to substitute it and what
+`validate --verify-integrity` needs to check it. It does not mean the tool
+actually returned that value when the run happened -- for that, the digest has to
+travel by a route the bundle's author cannot edit, which `--expect-digest`
+covers.
+
+**How many distinct tools or models were involved.** The report counts calls, not
+identities. Two calls to the same tool are two calls.
+
+Exit codes: `0` when the report is produced, `2` when the bundle cannot be read.
+The report is a description, not a gate: a bundle with uncaptured calls still
+exits `0`, and the reading is in the counts.
 
 ## replay
 

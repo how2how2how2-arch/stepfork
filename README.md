@@ -324,6 +324,7 @@ business outcome - it lives in `expected.json`, defined by a human.
 |---|---|
 | `stepfork validate [PATH] [--partial] [--verify-integrity]` | Check a `.sftrace` bundle structurally (and its integrity). |
 | `stepfork inspect [PATH] [--json] [--events] [--errors-only] [--step N]` | Review a bundle locally. |
+| `stepfork coverage [PATH] [--json] [--calls]` | Report instrumentation coverage: which recorded calls carry verifiable outcomes. |
 | `stepfork replay [PATH] --entrypoint MODULE:FUNCTION [--mode M] [--allow-live-tool NAME] [--verbose]` | Rerun the entrypoint with dependencies answered from the trace. |
 | `stepfork minimize [PATH] --entrypoint MODULE:FUNCTION [--expect-output FILE] [--mode M] [--output PATH] [--overwrite] [--timeout SECONDS] [--attempts N]` | Minimize a failing trace to the smallest reproducible subset. |
 | `stepfork fork [PATH] [--at-step N \| --at-event ID] [--output PATH] [--overwrite]` | Fork a trace at a specific step (Python API for overrides). |
