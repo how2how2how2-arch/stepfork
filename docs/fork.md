@@ -449,13 +449,46 @@ stepfork fork failure.sftrace --at-step 8 -o minimal.sftrace
 - Overrides are only available via Python API
 - CLI can only fork without modifications
 
-**❌ Does not detect divergence**
-- Fork creates a static trace
-- Divergence detection requires replay integration (planned)
+**⚠️ Reports stale downstream outputs, but does not re-execute them**
+- Fork names the retained recorded outputs that sit after an overridden step
+- It does not work out which of them actually depend on the changed value,
+  and it does not re-run anything: see
+  [Downstream outputs after an override](#downstream-outputs-after-an-override)
 
 **❌ Cannot override inputs**
 - Can only override outputs (tool_result, llm_response)
 - Cannot change tool call arguments or LLM prompts
+
+### Downstream outputs after an override
+
+An override replaces a recorded output at one step. Every recorded output
+that was captured after that step but still before the fork point was
+produced under the upstream state the override changed, so it is not
+evidence for the modified execution path.
+
+`fork_trace()` reports this on its result:
+
+```python
+result = fork_trace(
+    trace,
+    ForkPoint(step=6),
+    overrides=[OverrideSpec(step=2, output={"count": 99})],
+)
+assert result.overridden_steps == (2,)
+assert len(result.stale_event_ids) == 2  # the results at steps 4 and 6
+```
+
+The classification is an upper bound, not a dependency analysis. It marks
+every recorded output after the earliest overridden step, whether or not
+that output's inputs actually changed, and it does not mark the event the
+override replaced, because that value is the override rather than a reused
+recording.
+
+What this does not give you: replay does not consult the classification
+yet, so a call that appears as `"substituted"` in `executed_calls` is not
+by itself proof that the output belongs to the modified path. Neither is
+the classification persisted into a saved bundle, so it is only available
+from the `fork_trace()` call that produced it.
 
 ### Replay Integration
 

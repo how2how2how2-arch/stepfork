@@ -13,6 +13,7 @@ from stepfork.fork.models import (
     OverrideSpec,
 )
 from stepfork.fork.overrides import OverrideRegistry
+from stepfork.fork.staleness import classify_stale_outputs
 from stepfork.trace.models import Event, Trace
 
 
@@ -230,6 +231,12 @@ def fork_trace(
         # Execute fork
         forked_trace, fork_info = engine.fork()
 
+        # A recorded output after an overridden step was captured under the
+        # upstream state the override changed, so substituting it during replay
+        # is not evidence for the modified execution path. Name it here rather
+        # than let it pass as an ordinary substitution.
+        stale = classify_stale_outputs(forked_trace, OverrideRegistry(overrides))
+
         # Save if output path provided
         saved_path: str | None = None
         if output_path is not None:
@@ -243,6 +250,8 @@ def fork_trace(
             fork_point_step=fork_info.fork_point_step,
             fork_point_event_id=fork_info.fork_point_event_id,
             overrides_applied=fork_info.overrides_applied,
+            overridden_steps=stale.overridden_steps,
+            stale_event_ids=stale.stale_event_ids,
         )
 
     except Exception as exc:

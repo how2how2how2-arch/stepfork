@@ -149,4 +149,21 @@ def _display_report(result: ForkResult) -> None:
     if result.overrides_applied > 0:
         table.add_row("Overrides Applied", str(result.overrides_applied))
 
+    if result.overridden_steps:
+        steps = ", ".join(str(step) for step in result.overridden_steps)
+        table.add_row("Overridden Steps", steps)
+
+    if result.stale_event_ids:
+        table.add_row(
+            "Potentially Stale Outputs",
+            f"[yellow]{len(result.stale_event_ids)}[/yellow]",
+        )
+
     console.print(Panel(table, title="[bold]Fork Report[/bold]", expand=False))
+
+    if result.stale_event_ids:
+        console.print(
+            "[yellow]note[/yellow]: these outputs were recorded under the "
+            "upstream state an override changed. Replaying them is not "
+            "evidence for the modified path."
+        )
