@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -156,3 +157,40 @@ def test_legacy_bundle_is_structurally_valid_but_not_verified(tmp_path: Path) ->
 
     assert validate_bundle(legacy).valid
     assert not validate_bundle(legacy, verify_integrity=True).valid
+
+
+def test_record_naming_a_file_outside_the_bundle_is_rejected(tmp_path: Path) -> None:
+    """An entry in the record cannot reach outside the bundle it describes."""
+    path = save_complete(tmp_path)
+    outside = tmp_path / "outside-secret.txt"
+    outside.write_text("not part of any bundle\n", encoding="utf-8")
+    record_path = path / "integrity.json"
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    record["files"]["../outside-secret.txt"] = hashlib.sha256(
+        outside.read_bytes()
+    ).hexdigest()
+    record_path.write_text(json.dumps(record), encoding="utf-8", newline="")
+
+    result = verify_bundle_integrity(path)
+
+    assert result.status is IntegrityStatus.MISMATCH
+    assert "../outside-secret.txt" not in result.verified_files
+    assert [issue.code for issue in result.issues] == ["integrity_metadata_invalid"]
+
+
+def test_record_naming_a_file_the_bundle_does_not_cover_is_rejected(
+    tmp_path: Path,
+) -> None:
+    """A name the bundle format does not define is not a name to verify."""
+    path = save_complete(tmp_path)
+    (path / "extra.json").write_text("{}\n", encoding="utf-8", newline="")
+    record_path = path / "integrity.json"
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    record["files"]["extra.json"] = hashlib.sha256(b"{}\n").hexdigest()
+    record_path.write_text(json.dumps(record), encoding="utf-8", newline="")
+
+    result = verify_bundle_integrity(path)
+
+    assert result.status is IntegrityStatus.MISMATCH
+    assert "extra.json" not in result.verified_files
+    assert [issue.code for issue in result.issues] == ["integrity_metadata_invalid"]

@@ -27,6 +27,10 @@ INTEGRITY_FILES = (MANIFEST_FILE, EVENTS_FILE, REDACTIONS_FILE)
 # record, while a bundle written before they existed still verifies: the
 # required set above is what a record must carry a digest for.
 OPTIONAL_INTEGRITY_FILES = (FORK_FILE,)
+# Everything a record may name. The keys are turned into paths inside the
+# bundle, so this set is what keeps a record from claiming a file that is not
+# part of the bundle at all.
+KNOWN_INTEGRITY_FILES = INTEGRITY_FILES + OPTIONAL_INTEGRITY_FILES
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -135,8 +139,15 @@ def verify_bundle_integrity(path: str | Path) -> IntegrityResult:
     if issues:
         return IntegrityResult(status=IntegrityStatus.MISMATCH, issues=issues)
 
+    # Only names the bundle format defines are hashed. The record's keys are
+    # not a source of paths: an unchecked key can name a file outside the
+    # bundle (``../`` reaches a sibling and an absolute path replaces the
+    # bundle root), and hashing it would report a file this record does not
+    # describe as verified. _validate_record rejects such a record; keeping
+    # this list derived from the constants makes the two halves agree even if
+    # the validation is later widened.
     covered = list(INTEGRITY_FILES)
-    covered.extend(name for name in record.files if name not in INTEGRITY_FILES)
+    covered.extend(name for name in OPTIONAL_INTEGRITY_FILES if name in record.files)
     for filename in covered:
         file_path = bundle_path / filename
         if not file_path.is_file():
@@ -197,6 +208,19 @@ def _validate_record(record: IntegrityRecord) -> list[IntegrityIssue]:
             )
         )
         return issues
+
+    for filename in record.files:
+        if filename not in KNOWN_INTEGRITY_FILES:
+            issues.append(
+                IntegrityIssue(
+                    code="integrity_metadata_invalid",
+                    message=(
+                        f"Unknown file {filename!r} in the integrity record; a "
+                        "record may only cover files the bundle format defines."
+                    ),
+                    file=INTEGRITY_FILE,
+                )
+            )
 
     for filename in INTEGRITY_FILES:
         digest = record.files.get(filename)
