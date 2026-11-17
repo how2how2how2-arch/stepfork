@@ -413,14 +413,14 @@ Override tool results to test "what-if" scenarios:
 # What if the API returned more results?
 fork_trace(
     "trace.sftrace",
-    ForkPoint(step=5),
+    ForkPoint(event_id=None, step=5),
     overrides=[OverrideSpec(step=5, output={"results": [...100 items...]})]
 )
 
 # What if the database was empty?
 fork_trace(
     "trace.sftrace",
-    ForkPoint(step=3),
+    ForkPoint(event_id=None, step=3),
     overrides=[OverrideSpec(step=3, output={"rows": []})]
 )
 ```
@@ -471,7 +471,7 @@ evidence for the modified execution path.
 ```python
 result = fork_trace(
     trace,
-    ForkPoint(step=6),
+    ForkPoint(event_id=None, step=6),
     overrides=[OverrideSpec(step=2, output={"count": 99})],
 )
 assert result.overridden_steps == (2,)
@@ -502,7 +502,7 @@ from stepfork.replay import ReplaySession
 # 1. Fork with overrides
 fork_result = fork_trace(
     "original.sftrace",
-    ForkPoint(step=5),
+    ForkPoint(event_id=None, step=5),
     overrides=[OverrideSpec(step=5, output={"new": "value"})],
     output_path="forked.sftrace",
 )
