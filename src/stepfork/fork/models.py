@@ -69,6 +69,8 @@ class ForkResult:
     fork_point_step: int
     fork_point_event_id: str
     overrides_applied: int
+    overridden_steps: tuple[int, ...] = ()
+    stale_event_ids: tuple[str, ...] = ()
     error_message: str | None = None
 
 
